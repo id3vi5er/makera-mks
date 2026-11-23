@@ -1,0 +1,9 @@
+# Projektdateien und Entpacktes bleiben lokal
+*.mks
+*.nc
+*.png
+*.svg
+project.json
+scene.json
+__pycache__/
+*.pyc
