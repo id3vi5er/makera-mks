@@ -18,8 +18,8 @@ dependencies.
 | `scripts/mks.py` | library: `load`/`save`, scene graph, helpers for creating content (`new_project`, `add_layer`, `polyline_node`, …) |
 | `scripts/mks_tool.py` | CLI: `info`, `extract`, `pack`, `svg`, `verify` |
 | `reference/FORMAT.md` | format specification (`makera.bin` "scene_v3", `makera.prj`, container) – [Deutsch](reference/FORMAT.de.md) |
-| `SKILL.md` | instructions as a [Claude Code skill](https://docs.claude.com/en/docs/claude-code/skills) (German) |
-| `tests/test_selbst.py` | self-test without external files |
+| `SKILL.md` | instructions as a [Claude Code skill](https://docs.claude.com/en/docs/claude-code/skills) |
+| `tests/test_selftest.py` | self-test without external files |
 
 ## Quick start
 
@@ -61,7 +61,7 @@ git clone https://github.com/id3vi5er/makera-mks ~/.claude/skills/makera-mks
 ## Test
 
 ```bash
-python tests/test_selbst.py
+python tests/test_selftest.py
 ```
 
 ## License

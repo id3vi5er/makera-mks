@@ -1,20 +1,20 @@
-"""Makera-Studio-.mks: entpacken, bearbeiten, wieder packen.
+"""Makera Studio .mks: extract, edit, repack.
 
-  python mks_tool.py info    datei.mks [--max N]        Baum + Rohling/Werkzeugwege anzeigen
-  python mks_tool.py extract datei.mks ordner [--b64]   -> project.json, scene.json, prjImg.png
-  python mks_tool.py pack    ordner datei.mks           <- aus diesen Dateien neu bauen
-  python mks_tool.py verify  datei.mks|ordner ...       Roundtrip-Test (bytegenau) über Dateien/Ordner
-  python mks_tool.py svg     datei.mks bild.svg [--coord 0] [--toolpaths]   Vektor-Vorschau
+  python mks_tool.py info    file.mks [--max N]         show tree + stock/toolpaths
+  python mks_tool.py extract file.mks folder [--b64]    -> project.json, scene.json, prjImg.png
+  python mks_tool.py pack    folder file.mks            <- rebuild from these files
+  python mks_tool.py verify  file.mks|folder ...        round-trip test (byte-exact) over files/folders
+  python mks_tool.py svg     file.mks image.svg [--coord 0] [--toolpaths]   vector preview
 
 scene.json (Version 1): {"format":"makera-scene-json","version":1,"scene_version":"scene_v3",
   "roots":[Node...], "groups":[[{"key":..,"index":..}]]}
-Node: name, uuid, type, matrix[16] (spaltenweise), visible, i520, b13, i360, i364, ints,
+Node: name, uuid, type, matrix[16] (column-major), visible, i520, b13, i360, i364, ints,
   geometry|null, material|null, children[], axis_items[]
 geometry: mode, positions[[x,y,z]], normals[[x,y,z]], uvs[[u,v]], colors[[r,g,b]], indices[],
-  class_name|null, gcode_data[]|null, flag, extra[] (float je Vertex)
-  Mit --b64 stehen die Felder stattdessen als {"b64": "..."} (Rohbytes, kompakt).
+  class_name|null, gcode_data[]|null, flag, extra[] (float per vertex)
+  With --b64 these fields are stored as {"b64": "..."} instead (raw bytes, compact).
 material: name, color[3], color2[3], texture|null {width,height,channels,b64}
-float32-Werte werden exakt (über float64-repr) gespeichert -> pack ist bytegenau.
+float32 values are stored exactly (via float64 repr) -> pack is byte-exact.
 """
 from __future__ import annotations
 
@@ -30,7 +30,7 @@ import zipfile
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import mks  # noqa: E402
 
-# Feld -> (struct-Typ, Elemente pro Eintrag)
+# field -> (struct type, elements per entry)
 GEO_FIELDS = {"positions": ("f", 3), "normals": ("f", 3), "uvs": ("f", 2), "colors": ("f", 3),
               "indices": ("I", 1), "gcode_data": ("i", 1), "extra": ("f", 1)}
 
@@ -42,7 +42,7 @@ def blob_to_json(b: bytes, kind: str, per: int, b64: bool):
         return {"b64": base64.b64encode(b).decode()}
     n = len(b) // 4
     if n * 4 != len(b):
-        return {"b64": base64.b64encode(b).decode()}  # unerwartete Länge: verlustfrei als Rohdaten
+        return {"b64": base64.b64encode(b).decode()}  # unexpected length: keep lossless as raw bytes
     vals = struct.unpack(f"<{n}{kind}", b)
     if per == 1:
         return list(vals)
@@ -120,14 +120,14 @@ def scene_to_json(s: mks.Scene, b64=False) -> dict:
 
 def json_to_scene(d: dict) -> mks.Scene:
     if d.get("format") != "makera-scene-json":
-        raise ValueError("keine scene.json von mks_tool")
+        raise ValueError("not a scene.json written by mks_tool")
     return mks.Scene(version=d.get("scene_version", "scene_v3"),
                      roots=[json_to_node(r) for r in d["roots"]],
                      groups=[[mks.GroupMember(m["key"], m["index"]) for m in g] for g in d.get("groups", [])])
 
 
 def dump_compact(obj, ind=0) -> str:
-    """JSON mit Einzug für die Struktur, aber Zahlenlisten (Geometrie, Matrix) einzeilig."""
+    """JSON indented for the structure, but number lists (geometry, matrix) on one line."""
     pad, pad2 = " " * ind, " " * (ind + 1)
     if isinstance(obj, dict):
         if not obj:
@@ -143,34 +143,34 @@ def dump_compact(obj, ind=0) -> str:
         return "[\n" + ",\n".join(pad2 + dump_compact(x, ind + 1) for x in obj) + "\n" + pad + "]"
     return json.dumps(obj, ensure_ascii=False)
 
-# ---------------------------------------------------------------- Befehle
+# ---------------------------------------------------------------- commands
 
 
 def cmd_extract(a):
     p = mks.load(a.mks)
-    os.makedirs(a.ordner, exist_ok=True)
-    with open(os.path.join(a.ordner, "project.json"), "w", encoding="utf-8", newline="\n") as f:
+    os.makedirs(a.folder, exist_ok=True)
+    with open(os.path.join(a.folder, "project.json"), "w", encoding="utf-8", newline="\n") as f:
         json.dump(p.prj, f, indent=2, ensure_ascii=False)
-    with open(os.path.join(a.ordner, "scene.json"), "w", encoding="utf-8", newline="\n") as f:
+    with open(os.path.join(a.folder, "scene.json"), "w", encoding="utf-8", newline="\n") as f:
         f.write(dump_compact(scene_to_json(p.scene, a.b64)))
     if p.png:
-        with open(os.path.join(a.ordner, "prjImg.png"), "wb") as f:
+        with open(os.path.join(a.folder, "prjImg.png"), "wb") as f:
             f.write(p.png)
-    print(f"entpackt nach {a.ordner}: project.json, scene.json" + (", prjImg.png" if p.png else ""))
+    print(f"extracted to {a.folder}: project.json, scene.json" + (", prjImg.png" if p.png else ""))
 
 
-def load_folder(ordner) -> mks.Project:
-    with open(os.path.join(ordner, "project.json"), encoding="utf-8") as f:
+def load_folder(folder) -> mks.Project:
+    with open(os.path.join(folder, "project.json"), encoding="utf-8") as f:
         prj = json.load(f)
-    with open(os.path.join(ordner, "scene.json"), encoding="utf-8") as f:
+    with open(os.path.join(folder, "scene.json"), encoding="utf-8") as f:
         scene = json_to_scene(json.load(f))
-    png_path = os.path.join(ordner, "prjImg.png")
+    png_path = os.path.join(folder, "prjImg.png")
     png = open(png_path, "rb").read() if os.path.exists(png_path) else None
     return mks.Project(prj=prj, scene=scene, png=png)
 
 
 def check_links(p: mks.Project):
-    """Warnungen, wenn prj-uuids nicht in der Szene vorkommen."""
+    """Warnings for prj uuids that do not occur in the scene."""
     uu = set()
     for r in p.scene.roots:
         for n, _ in mks.iter_nodes(r):
@@ -178,47 +178,47 @@ def check_links(p: mks.Project):
     warn = []
     for key, c in p.prj["project"]["lstCoordinate"].items():
         if c["uuid"] not in uu:
-            warn.append(f"Aufspannung {key}: uuid {c['uuid']} fehlt in der Szene")
+            warn.append(f"setup {key}: uuid {c['uuid']} missing in scene")
         for img in c["images"]:
             for u in img["list_meshes_uuids"]:
                 if u not in uu:
-                    warn.append(f"Layer {img['name']!r}: uuid {u} fehlt in der Szene")
+                    warn.append(f"layer {img['name']!r}: uuid {u} missing in scene")
         for pa in c["path"]:
             missing = [u for u in pa.get("selectedmeshes", []) if u not in uu]
             if missing:
-                warn.append(f"Pfad {pa.get('pathName')!r}: {len(missing)} selectedmeshes fehlen")
+                warn.append(f"toolpath {pa.get('pathName')!r}: {len(missing)} selectedmeshes missing")
     return warn
 
 
 def cmd_pack(a):
-    p = load_folder(a.ordner)
+    p = load_folder(a.folder)
     for w in check_links(p):
-        print("WARNUNG:", w)
+        print("WARNING:", w)
     mks.save(p, a.mks)
-    print("geschrieben:", a.mks)
+    print("written:", a.mks)
 
 
 def type_name(t):
-    return {8: "Aufspannung", 256: "Layer", 2: "Vektor", 128: "Vektor128", 4: "Werkzeugweg",
-            64: "Mesh", 1024: "STEP", 2048: "STEP-Kanten"}.get(t, f"type{t}")
+    return {8: "Setup", 256: "Layer", 2: "Vector", 128: "Vector128", 4: "Toolpath",
+            64: "Mesh", 1024: "STEP", 2048: "STEP-edges"}.get(t, f"type{t}")
 
 
 def cmd_info(a):
     p = mks.load(a.mks)
     pr = p.prj["project"]
     st = pr["stStockInfo"]
-    print(f"Projekt {pr.get('strProjectName')!r}, gespeichert {pr.get('nSaveDate')}, "
-          f"Maschine {pr['machine'].get('model')}")
-    print(f"Rohling {st['length']} x {st['width']} x {st['height']} mm, Material {st['material'].get('name')}")
+    print(f"Project {pr.get('strProjectName')!r}, saved {pr.get('nSaveDate')}, "
+          f"machine {pr['machine'].get('model')}")
+    print(f"Stock {st['length']} x {st['width']} x {st['height']} mm, material {st['material'].get('name')}")
     for key, c in sorted(pr["lstCoordinate"].items()):
-        print(f"\nAufspannung {key} {c['name']} (uuid {c['uuid']})")
+        print(f"\nSetup {key} {c['name']} (uuid {c['uuid']})")
         for img in c["images"]:
             print(f"  Layer {img['name']!r} {img['color']} type={img['type']}")
         for pa in c["path"]:
             t = pa["tools"][0] if pa.get("tools") else {}
-            print(f"  Pfad {pa['pathName']!r} type={pa['type']} Objekte={len(pa.get('selectedmeshes', []))} "
-                  f"Tiefe {pa['depth']['startDepth']}..{pa['depth']['endDepth']} "
-                  f"Werkzeug {t.get('toolName')!r} {t.get('spindleSpeed')} U/min F{t.get('feedrate')}")
+            print(f"  Toolpath {pa['pathName']!r} type={pa['type']} objects={len(pa.get('selectedmeshes', []))} "
+                  f"depth {pa['depth']['startDepth']}..{pa['depth']['endDepth']} "
+                  f"tool {t.get('toolName')!r} {t.get('spindleSpeed')} rpm F{t.get('feedrate')}")
 
     def walk(n, d):
         g = n.geometry
@@ -234,15 +234,15 @@ def cmd_info(a):
                 break
             walk(c, d + 1)
         if n.axis_items:
-            print(f"{'  ' * (d + 1)}[{len(n.axis_items)} Werkzeugweg-Objekte]")
-    print("\nSzene:")
+            print(f"{'  ' * (d + 1)}[{len(n.axis_items)} toolpath objects]")
+    print("\nScene:")
     for r in p.scene.roots:
         walk(r, 1)
 
 
 def cmd_verify(a):
     files = []
-    for x in a.pfade:
+    for x in a.paths:
         files += sorted(glob.glob(os.path.join(x, "**", "*.mks"), recursive=True)) if os.path.isdir(x) else [x]
     ok = 0
     for f in files:
@@ -252,14 +252,14 @@ def cmd_verify(a):
             s = mks.read_scene(b)
             r1 = mks.write_scene(s) == b
             r2 = mks.dump_prj(json.loads(j)) == j
-            # zusätzlich über das JSON-Abbild
+            # additionally via the JSON representation
             r3 = mks.write_scene(json_to_scene(json.loads(dump_compact(scene_to_json(s))))) == b
             good = r1 and r2 and r3
             ok += good
             print(f"{'OK  ' if good else 'DIFF'} bin={r1} prj={r2} json={r3}  {f}")
         except Exception as e:  # noqa: BLE001
-            print(f"FEHLER {f}: {e}")
-    print(f"\n{ok}/{len(files)} bytegenau")
+            print(f"ERROR {f}: {e}")
+    print(f"\n{ok}/{len(files)} byte-exact")
     return 0 if ok == len(files) else 1
 
 
@@ -286,7 +286,7 @@ def cmd_svg(a):
     out.append("</g></svg>")
     with open(a.svg, "w", encoding="utf-8") as f:
         f.write("\n".join(out))
-    print("geschrieben:", a.svg)
+    print("written:", a.svg)
 
 
 def main(argv=None):
@@ -294,13 +294,13 @@ def main(argv=None):
         sys.stdout.reconfigure(encoding="utf-8", errors="replace")
     except AttributeError:
         pass
-    ap =argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sp = ap.add_subparsers(dest="cmd", required=True)
     s = sp.add_parser("info"); s.add_argument("mks"); s.add_argument("--max", type=int, default=5)
-    s = sp.add_parser("extract"); s.add_argument("mks"); s.add_argument("ordner")
-    s.add_argument("--b64", action="store_true", help="Geometrie als Base64 statt Zahlenlisten")
-    s = sp.add_parser("pack"); s.add_argument("ordner"); s.add_argument("mks")
-    s = sp.add_parser("verify"); s.add_argument("pfade", nargs="+")
+    s = sp.add_parser("extract"); s.add_argument("mks"); s.add_argument("folder")
+    s.add_argument("--b64", action="store_true", help="geometry as Base64 instead of number lists")
+    s = sp.add_parser("pack"); s.add_argument("folder"); s.add_argument("mks")
+    s = sp.add_parser("verify"); s.add_argument("paths", nargs="+")
     s = sp.add_parser("svg"); s.add_argument("mks"); s.add_argument("svg")
     s.add_argument("--coord", type=int, default=0); s.add_argument("--toolpaths", action="store_true")
     a = ap.parse_args(argv)

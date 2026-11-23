@@ -1,85 +1,87 @@
 ---
 name: makera-mks
-description: Liest, entpackt, bearbeitet und schreibt Makera-Studio-Projektdateien (.mks, CNC-CAM für Makera Z1/Carvera) – bytegenau. Verwenden, wenn eine .mks gelesen, analysiert, als JSON/SVG ausgegeben, verändert (Layer, Vektoren, Rohling, Werkzeugweg-Parameter) oder neu erzeugt werden soll, oder wenn nach dem Aufbau von makera.bin / makera.prj / scene_v3 gefragt wird.
+description: Reads, extracts, edits and writes Makera Studio project files (.mks, CNC CAM for Makera Z1/Carvera) byte-exact. Use when a .mks file should be read, analyzed, exported as JSON/SVG, modified (layers, vectors, stock, toolpath parameters) or newly generated, or when asked about the structure of makera.bin / makera.prj / scene_v3.
 ---
 
-# Makera Studio `.mks` lesen und schreiben
+# Reading and writing Makera Studio `.mks` files
 
-## Kernfakten
+**Language:** this skill and its tools are in English. Always answer the user in the language
+they use, regardless of the language of this file or of the tool output.
 
-- `.mks` = ZIP mit `makera` (leer), `makera.bin` (Binär-Szenengraph `scene_v3`), `makera.prj`
-  (Qt-JSON, CRLF), optional `prjImg.png`. Komplette Spezifikation: `reference/FORMAT.md` (deutsch: `reference/FORMAT.de.md`).
-- Das Format stammt aus dem Schreibcode von `MakeraStudio.exe` 0.1.2.0, nicht aus Raten.
-  Verifiziert: 36 echte Projekte lesen → schreiben **bytegenau** (bin, prj und über das JSON-Abbild);
-  neu erzeugte Dateien laden in Makera Studio korrekt.
-- Bibliothek `scripts/mks.py` (nur Python-Standardbibliothek), CLI `scripts/mks_tool.py`.
-- Originale des Nutzers **nur lesen**. Immer in eine neue Datei schreiben, nie das Original
-  überschreiben.
+## Key facts
+
+- `.mks` = ZIP containing `makera` (empty), `makera.bin` (binary scene graph `scene_v3`), `makera.prj`
+  (Qt JSON, CRLF), optional `prjImg.png`. Full specification: `reference/FORMAT.md`
+  (German: `reference/FORMAT.de.md`).
+- The format was derived from the write code of `MakeraStudio.exe` 0.1.2.0, not guessed.
+  Verified: 36 real projects read → written **byte-exact** (bin, prj and via the JSON representation);
+  newly generated files load correctly in Makera Studio.
+- Library `scripts/mks.py` (Python standard library only), CLI `scripts/mks_tool.py`.
+- Treat the user's original files as **read-only**. Always write to a new file, never overwrite the
+  original.
 
 ## CLI
 
 ```bash
 S=~/.claude/skills/makera-mks/scripts
-python $S/mks_tool.py info    datei.mks [--max 5]     # Rohling, Layer, Werkzeugwege, Baum
-python $S/mks_tool.py extract datei.mks ordner [--b64] # project.json + scene.json + prjImg.png
-python $S/mks_tool.py pack    ordner neu.mks           # zurück zur .mks (warnt bei kaputten uuid-Bezügen)
-python $S/mks_tool.py svg     datei.mks bild.svg [--coord 0] [--toolpaths]
-python $S/mks_tool.py verify  datei.mks|ordner ...     # Roundtrip-Selbsttest
+python $S/mks_tool.py info    file.mks [--max 5]       # stock, layers, toolpaths, tree
+python $S/mks_tool.py extract file.mks folder [--b64]  # project.json + scene.json + prjImg.png
+python $S/mks_tool.py pack    folder new.mks           # back to .mks (warns about broken uuid links)
+python $S/mks_tool.py svg     file.mks image.svg [--coord 0] [--toolpaths]
+python $S/mks_tool.py verify  file.mks|folder ...      # round-trip self-test
 ```
 
-`scene.json` ist der Baum mit Geometrie als Zahlenlisten (`positions [[x,y,z]…]`, `indices`, …);
-mit `--b64` kompakt als Base64 (bei großen Dateien, 15 MB bin → sonst ~4× so groß als JSON).
-`project.json` ist `makera.prj` unverändert als JSON; `pack` schreibt es wieder im Qt-Stil.
+`scene.json` is the tree with geometry as number lists (`positions [[x,y,z]…]`, `indices`, …);
+with `--b64` compactly as Base64 (for large files: a 15 MB bin is ~4× larger as JSON lists).
+`project.json` is `makera.prj` unchanged as JSON; `pack` writes it back in Qt style.
 
-## Python-API
+## Python API
 
 ```python
 import sys, os; sys.path.insert(0, os.path.expanduser("~/.claude/skills/makera-mks/scripts"))
 import mks
 
-p = mks.load("datei.mks")              # Project(prj=dict, scene=Scene, png)
-root, pc = mks.coordinate(p, 0)         # bin-Knoten + prj-Eintrag der Aufspannung "0"
-for n, m in mks.iter_nodes(root):       # alle Knoten mit akkumulierter Matrix
-    segs = mks.segments(n, m)           # Liniensegmente (mode 1) in Werkstück-mm
+p = mks.load("file.mks")               # Project(prj=dict, scene=Scene, png)
+root, pc = mks.coordinate(p, 0)         # bin node + prj entry of setup "0"
+for n, m in mks.iter_nodes(root):       # all nodes with accumulated matrix
+    segs = mks.segments(n, m)           # line segments (mode 1)
 
-# neu
+# new
 p = mks.new_project("demo", stock=(150, 100, 1.5))          # TOP + Layer1, Makera Z1
 lay = mks.find_layer(p, "Layer1")
 lay.children.append(mks.polyline_node([(10, 10), (60, 10), (60, 40), (10, 40)]))
 lay.children.append(mks.polyline_node(mks.circle_points(90, 50, 15)))
-lay2 = mks.add_layer(p, "Bohrungen", "#d05ae7")              # trägt bin UND prj ein
+lay2 = mks.add_layer(p, "Holes", "#d05ae7")                  # registers in bin AND prj
 mks.save(p, "demo.mks")
 ```
 
-Koordinaten: Ursprung = linke untere Ecke der Rohling-Oberseite, mm, Z = 0 auf der Oberfläche.
-`iter_nodes(root)` liefert für die Kinder bereits die Matrix des Koordinatenknotens
-(-L/2, -B/2, H/2) mit – für Werkstückkoordinaten über `root.children` iterieren
-(so macht es `svg`).
+Coordinates: origin = lower left corner of the stock's top surface, mm, Z = 0 on the surface.
+`iter_nodes(root)` already includes the coordinate node's matrix (-L/2, -W/2, H/2) for its children –
+for workpiece coordinates iterate over `root.children` instead (as `svg` does).
 
-## Regeln beim Schreiben
+## Rules for writing
 
-1. **Name und uuid nie leer.** Makera schreibt leere Strings ohne Länge; der Leser läuft dann aus dem Takt.
-   `mks.save` bricht in dem Fall ab.
-2. **bin und prj gemeinsam pflegen.** Layer-uuid steht in `images[].list_meshes_uuids`,
-   Koordinatenknoten-uuid in `lstCoordinate[i].uuid`, bearbeitete Vektoren in `path[].selectedmeshes`,
-   berechnete Wege in `path[].gcodemeshuuidmap` (Knoten type 4 in `axis_items`).
-   Neue Layer daher mit `add_layer`, nicht nur als Knoten.
-3. **Werkzeugwege nicht selbst erfinden.** Neue Vektoren ohne Pfad schreiben; Makera berechnet die Wege
-   per „Add Toolpath“/„Generate Toolpath“. Bestehende Pfad-Parameter (Tiefe, Werkzeug, Vorschub) in
-   `project.json` ändern ist möglich, die zugehörigen type-4-Knoten sind dann aber veraltet → in Makera
-   „Recalculate“.
-4. Vektoren: `mode=1` (GL_LINES, Segmentpaare), Material `MeshInstanceLineMaterial` in Layerfarbe.
-5. Nach dem Schreiben `verify` auf die neue Datei und – wenn möglich – in Makera Studio öffnen:
-   `"<Installationsordner>\MakeraStudio.exe" "<pfad>"` (Ordner: `InstallLocation` von „Makera Studio“
-   in der Windows-Deinstallationsliste, Standard `%LOCALAPPDATA%\Programs\Makera Studio`)
-   (Einzelinstanz: lädt die Datei in das offene Fenster; ungespeicherte Änderungen dort gehen verloren).
+1. **Name and uuid must never be empty.** Makera writes empty strings without a length; the reader
+   then gets out of step. `mks.save` refuses in that case.
+2. **Keep bin and prj in sync.** The layer uuid is in `images[].list_meshes_uuids`, the coordinate
+   node uuid in `lstCoordinate[i].uuid`, machined vectors in `path[].selectedmeshes`, computed paths in
+   `path[].gcodemeshuuidmap` (type 4 nodes in `axis_items`). Create new layers with `add_layer`,
+   not just as nodes.
+3. **Do not invent toolpaths.** Write new vectors without computed paths; Makera computes them via
+   "Add Toolpath" / "Generate Toolpath". Toolpath definitions (depth, tool, feed) can be written or
+   changed in `project.json` with an empty `gcodemeshuuidmap`; then use "Recalculate" in Makera.
+4. Vectors: `mode=1` (GL_LINES, segment pairs), material `MeshInstanceLineMaterial` in the layer color.
+5. After writing, run `verify` on the new file and – if possible – open it in Makera Studio:
+   `"<install folder>\MakeraStudio.exe" "<path>"` (folder: `InstallLocation` of "Makera Studio" in the
+   Windows uninstall list, default `%LOCALAPPDATA%\Programs\Makera Studio`). It is single-instance:
+   the file is loaded into the open window and unsaved changes there are lost.
 
-## Fallstricke
+## Pitfalls
 
-- Felder `i520` (und `stepOverMM` in der prj) enthalten uninitialisierten Speicher – Zufallswerte sind normal.
-- Die bin kann mehr `CoordinateN` enthalten als die prj nennt (alte Aufspannungen); maßgeblich ist die uuid.
-- Nur `scene_v3`; `scene`/`scene_v2` (ältere Makera-Versionen) werden abgelehnt.
-- Der `group`-Abschnitt war in allen Beispielen leer; der Leser liest den optionalen Schlüssel heuristisch.
-- Ändert eine neue Makera-Version das Format, schlägt `verify` fehl. Dann neu ableiten wie in
-  `reference/FORMAT.md` beschrieben (Writer über das 8-Byte-Immediate `scene_v3` in der EXE finden,
-  fwrite-Aufrufe der Objekt-Serialisierung lesen; RTTI-Namen `.?AV…@@` helfen).
+- Fields `i520` (and `stepOverMM` in the prj) contain uninitialized memory – random values are normal.
+- The bin may contain more `CoordinateN` nodes than the prj references (old setups); the uuid decides.
+- Only `scene_v3`; `scene`/`scene_v2` (older Makera versions) are rejected.
+- The `group` section was empty in all samples; the reader parses the optional key heuristically.
+- If a new Makera version changes the format, `verify` fails. Re-derive it as described in
+  `reference/FORMAT.md` section 5 (find the writer via the 8-byte immediate `scene_v3` in the EXE,
+  read the fwrite calls of the object serializer; RTTI names `.?AV…@@` help).

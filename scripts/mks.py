@@ -1,10 +1,10 @@
-"""Lesen und Schreiben von Makera-Studio-Projektdateien (.mks).
+"""Read and write Makera Studio project files (.mks).
 
-Format rekonstruiert aus Makera Studio 0.1.2.0 (MakeraStudio.exe, Writer bei
-0x1401a8950 / Objekt-Serializer bei 0x140191620). Details: ../reference/FORMAT.md.
+Format reconstructed from Makera Studio 0.1.2.0 (MakeraStudio.exe, writer at
+0x1401a8950 / object serializer at 0x140191620). Details: ../reference/FORMAT.md.
 
-    proj = load("datei.mks")          # -> Project(prj=dict, scene=Scene, png=bytes|None)
-    save(proj, "kopie.mks")
+    proj = load("file.mks")           # -> Project(prj=dict, scene=Scene, png=bytes|None)
+    save(proj, "copy.mks")
 
     p = new_project("demo", stock=(150, 100, 1.5))
     lay = find_layer(p, "Layer1")
@@ -21,20 +21,20 @@ import zipfile
 from dataclasses import dataclass, field
 from typing import Optional
 
-# ---------------------------------------------------------------- Datenmodell
+# ---------------------------------------------------------------- data model
 
 
 @dataclass
 class Texture:
     width: int
     height: int
-    channels: int  # immer 4 (RGBA)
-    data: bytes    # width*height*channels Bytes
+    channels: int  # always 4 (RGBA)
+    data: bytes    # width*height*channels bytes
 
 
 @dataclass
 class Material:
-    name: str                       # z.B. "MeshBasicMaterial", "GCodeMaterial"
+    name: str                       # e.g. "MeshBasicMaterial", "GCodeMaterial"
     color: tuple                    # 3 x float32 (Material+0x44)
     color2: tuple                   # 3 x float32 (Material+0x14)
     texture: Optional[Texture] = None
@@ -42,23 +42,23 @@ class Material:
 
 @dataclass
 class Geometry:
-    mode: int                       # Geometry+0x1a4 (1 = Linien, 4 = Dreiecke ...)
+    mode: int                       # Geometry+0x1a4 (1 = lines, 4 = triangles ...)
     positions: bytes = b""          # float32 xyz
     normals: bytes = b""            # float32 xyz
     uvs: bytes = b""                # float32 uv
     colors: bytes = b""             # float32 rgb
     indices: bytes = b""            # uint32
-    class_name: Optional[str] = None  # nur bei type==4: "GCodeGeometry"/"PlaneGeometry"
-    gcode_data: Optional[bytes] = None  # nur GCodeGeometry: 4-Byte-Elemente
+    class_name: Optional[str] = None  # only for type==4: "GCodeGeometry"/"PlaneGeometry"
+    gcode_data: Optional[bytes] = None  # only GCodeGeometry: int32 per vertex
     flag: bool = False              # Geometry+0x120
-    extra: bytes = b""              # Geometry+0xf8, 4-Byte-Elemente
+    extra: bytes = b""              # Geometry+0xf8, float32 per vertex
 
 
 @dataclass
 class Node:
     name: str
     uuid: str
-    matrix: tuple                   # 16 x float32, spaltenweise (OpenGL)
+    matrix: tuple                   # 16 x float32, column-major (OpenGL)
     type: int                       # Object3D+0x260
     visible: bool = True            # Object3D+0x12
     i520: int = 0                   # Object3D+0x520
@@ -69,13 +69,13 @@ class Node:
     geometry: Optional[Geometry] = None
     material: Optional[Material] = None
     children: list = field(default_factory=list)
-    axis_items: list = field(default_factory=list)  # nur type==8 (AxisNodeMesh)
+    axis_items: list = field(default_factory=list)  # only type==8 (AxisNodeMesh)
 
 
 @dataclass
 class GroupMember:
-    key: str        # Schlüssel der Objektliste ("" = nicht gefunden)
-    index: int      # Index in dieser Liste, -1 = nicht gefunden
+    key: str        # key of the object list ("" = not found)
+    index: int      # index in that list, -1 = not found
 
 
 @dataclass
@@ -90,9 +90,9 @@ class Project:
     prj: dict
     scene: Scene
     png: Optional[bytes] = None
-    prj_raw: Optional[bytes] = None   # Originaltext von makera.prj (für bitgenaues Zurückschreiben)
+    prj_raw: Optional[bytes] = None   # original text of makera.prj (for bit-exact rewriting)
 
-# ---------------------------------------------------------------- Lesen
+# ---------------------------------------------------------------- reading
 
 
 class _R:
@@ -111,7 +111,7 @@ class _R:
     def raw(self, n):
         v = self.b[self.o:self.o + n]
         if len(v) != n:
-            raise EOFError(f"{n} Bytes an 0x{self.o:x} erwartet")
+            raise EOFError(f"expected {n} bytes at 0x{self.o:x}")
         self.o += n; return v
 
     def floats(self, n):
@@ -121,7 +121,7 @@ class _R:
         return self.raw(self.u32())
 
     def str(self):
-        # Leere Strings schreibt Makera gar nicht (auch keine Länge) -> nicht eindeutig lesbar.
+        # Makera does not write empty strings at all (not even a length) -> not readable unambiguously.
         return self.raw(self.u32()).decode("utf-8")
 
 
@@ -167,15 +167,15 @@ def read_scene(b: bytes) -> Scene:
     r = _R(b)
     s = Scene(version=r.str())
     if s.version != "scene_v3":
-        raise ValueError(f"nur scene_v3 unterstützt, gefunden {s.version!r}")
+        raise ValueError(f"only scene_v3 is supported, found {s.version!r}")
     s.roots = [_read_node(r) for _ in range(r.u32())]
     tag = r.str()
     if tag != "group":
-        raise ValueError(f"'group' erwartet, gefunden {tag!r}")
+        raise ValueError(f"expected 'group', found {tag!r}")
     for _ in range(r.u32()):
         members = []
         for _ in range(r.u32()):
-            # Schlüssel steht nur da, wenn nicht leer; Index -1 bedeutet "nicht gefunden".
+            # the key is only present if not empty; index -1 means "not found".
             save = r.o
             key = ""
             ln = r.u32()
@@ -186,10 +186,10 @@ def read_scene(b: bytes) -> Scene:
             members.append(GroupMember(key, r.i32()))
         s.groups.append(members)
     if r.o != len(b):
-        raise ValueError(f"{len(b) - r.o} Restbytes nach Szene")
+        raise ValueError(f"{len(b) - r.o} trailing bytes after scene")
     return s
 
-# ---------------------------------------------------------------- Schreiben
+# ---------------------------------------------------------------- writing
 
 
 class _W:
@@ -206,13 +206,13 @@ class _W:
 
     def str(self, s):
         b = s.encode("utf-8")
-        if b:  # wie Makera: leere Strings komplett weglassen
+        if b:  # like Makera: omit empty strings entirely
             self.blob(b)
 
 
 def _write_node(w: _W, n: Node):
     if not n.name or not n.uuid:
-        raise ValueError("name und uuid dürfen nicht leer sein (Makera liest sie sonst falsch)")
+        raise ValueError("name and uuid must not be empty (Makera would misread the file)")
     w.str(n.name)
     w.str(n.uuid)
     w.floats(n.matrix)
@@ -271,12 +271,12 @@ def write_scene(s: Scene) -> bytes:
             w.i32(m.index)
     return w.f.getvalue()
 
-# ---------------------------------------------------------------- prj (Qt-JSON)
+# ---------------------------------------------------------------- prj (Qt JSON)
 
 
 def dump_prj(obj) -> bytes:
-    """JSON wie QJsonDocument::toJson(Indented): 4 Leerzeichen, Schlüssel sortiert,
-    leere Container als '{\\n    }' / '[\\n    ]', Zeilenende CRLF."""
+    """JSON like QJsonDocument::toJson(Indented): 4 spaces, sorted keys,
+    empty containers as '{\\n    }' / '[\\n    ]', CRLF line endings."""
     def enc(v, ind):
         pad, pad2 = " " * ind, " " * (ind + 4)
         if isinstance(v, dict):
@@ -299,13 +299,13 @@ def dump_prj(obj) -> bytes:
         return json.dumps(v, ensure_ascii=False)
     return (enc(obj, 0) + "\n").replace("\n", "\r\n").encode("utf-8")
 
-# ---------------------------------------------------------------- Erzeugen / Bearbeiten
+# ---------------------------------------------------------------- creating / editing
 
 IDENTITY = (1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0)
 
 
 def new_uuid() -> str:
-    """uuid im Makera-Stil: 8-4-4-4-12 aus [A-Za-z0-9]."""
+    """uuid in Makera style: 8-4-4-4-12 from [A-Za-z0-9]."""
     import secrets
     import string
     a = string.ascii_letters + string.digits
@@ -317,7 +317,7 @@ def hex2rgb(h: str) -> tuple:
 
 
 def polyline_node(points, color_hex="#11a230", closed=True, z=0.0) -> Node:
-    """Polylinie [(x,y) oder (x,y,z), ...] in mm -> Vektor-Knoten (type 2, GL_LINES-Segmentpaare)."""
+    """Polyline [(x,y) or (x,y,z), ...] in mm -> vector node (type 2, GL_LINES segment pairs)."""
     pts = [tuple(p) for p in points]
     if closed and pts[0] != pts[-1]:
         pts.append(pts[0])
@@ -346,16 +346,16 @@ def circle_points(cx, cy, r, segments=64):
 
 
 def coordinate(p: "Project", index: int = 0):
-    """(bin-Knoten, prj-Eintrag) der Aufspannung `index` (0 = TOP)."""
+    """(bin node, prj entry) of setup `index` (0 = TOP)."""
     pc = p.prj["project"]["lstCoordinate"][str(index)]
     for r in p.scene.roots:
         if r.uuid == pc["uuid"]:
             return r, pc
-    raise KeyError(f"Koordinatenknoten zu uuid {pc['uuid']} fehlt in makera.bin")
+    raise KeyError(f"coordinate node with uuid {pc['uuid']} missing in makera.bin")
 
 
 def add_layer(p: "Project", name: str, color_hex: str = "#11a230", coord: int = 0) -> Node:
-    """Neuen Layer (type 256) anlegen, in bin UND prj eintragen. Gibt den Layer-Knoten zurück."""
+    """Create a new layer (type 256) and register it in bin AND prj. Returns the layer node."""
     root, pc = coordinate(p, coord)
     layer = Node(name=name, uuid=new_uuid(), matrix=IDENTITY, type=256)
     root.children.append(layer)
@@ -372,11 +372,11 @@ def find_layer(p: "Project", name: str, coord: int = 0) -> Node:
     for c in root.children:
         if c.type == 256 and c.name == name:
             return c
-    raise KeyError(f"Layer {name!r} nicht gefunden")
+    raise KeyError(f"layer {name!r} not found")
 
 
 def mat_mul(a, b):
-    """4x4 spaltenweise: a*b."""
+    """4x4 column-major: a*b."""
     return tuple(sum(a[k * 4 + r] * b[c * 4 + k] for k in range(4)) for c in range(4) for r in range(4))
 
 
@@ -387,8 +387,8 @@ def transform(m, x, y, z):
 
 
 def iter_nodes(n: Node, parent_matrix=None):
-    """(Knoten, Matrix relativ zum Startknoten-Elternteil) für alle Knoten, Tiefensuche.
-    Für Werkstückkoordinaten mit parent_matrix=None an den Kindern eines CoordinateN starten."""
+    """(node, matrix relative to the start node's parent) for all nodes, depth-first.
+    For workpiece coordinates start at the children of a CoordinateN with parent_matrix=None."""
     m = n.matrix if parent_matrix is None else mat_mul(parent_matrix, n.matrix)
     yield n, m
     for c in n.children:
@@ -398,7 +398,7 @@ def iter_nodes(n: Node, parent_matrix=None):
 
 
 def segments(n: Node, m=None):
-    """Liniensegmente [(p, q), ...] eines Knotens mit mode==1 (über die Indizes), optional transformiert."""
+    """Line segments [(p, q), ...] of a node with mode==1 (via the indices), optionally transformed."""
     g = n.geometry
     if not g or g.mode != 1 or not g.positions:
         return []
@@ -409,10 +409,10 @@ def segments(n: Node, m=None):
     return [(pos[idx[i]], pos[idx[i + 1]]) for i in range(0, len(idx) - 1, 2)]
 
 
-def new_project(name="neu", stock=(150.0, 100.0, 1.5), material="PCB", layer="Layer1",
+def new_project(name="new", stock=(150.0, 100.0, 1.5), material="PCB", layer="Layer1",
                 color_hex="#11a230") -> "Project":
-    """Leeres Projekt: Aufspannung TOP mit einem Layer, Makera Z1, Rohling L×B×H in mm.
-    Ursprung = linke untere Ecke der Rohling-Oberseite."""
+    """Empty project: setup TOP with one layer, Makera Z1, stock L×W×H in mm.
+    Origin = lower left corner of the stock's top surface."""
     import time
     L, W, H = stock
     coord = Node(name="Coordinate0", uuid=new_uuid(), type=8,
@@ -447,7 +447,7 @@ def new_project(name="neu", stock=(150.0, 100.0, 1.5), material="PCB", layer="La
     p.prj["project"]["lstCoordinate"]["0"]["images"][0]["activeState"] = True
     return p
 
-# ---------------------------------------------------------------- Container
+# ---------------------------------------------------------------- container
 
 
 def load(path) -> Project:
@@ -460,8 +460,8 @@ def load(path) -> Project:
 
 
 def save(p: Project, path, keep_prj_raw: bool = False):
-    """Schreibt eine .mks. Reihenfolge und Einträge wie Makera Studio:
-    'makera' (leer), 'makera.bin', 'makera.prj', optional 'prjImg.png', alle Deflate."""
+    """Write a .mks. Entry order as in Makera Studio:
+    'makera' (empty), 'makera.bin', 'makera.prj', optional 'prjImg.png', all deflated."""
     prj = p.prj_raw if (keep_prj_raw and p.prj_raw) else dump_prj(p.prj)
     with zipfile.ZipFile(path, "w", zipfile.ZIP_DEFLATED) as z:
         z.writestr("makera", b"")

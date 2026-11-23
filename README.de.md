@@ -18,7 +18,7 @@ dieselben Bytes; neu erzeugte Dateien öffnet Makera Studio wie eigene.
 | `scripts/mks_tool.py` | CLI: `info`, `extract`, `pack`, `svg`, `verify` |
 | `reference/FORMAT.de.md` | Formatbeschreibung (`makera.bin` „scene_v3“, `makera.prj`, Container) – [English](reference/FORMAT.md) |
 | `SKILL.md` | Anleitung als [Claude-Code-Skill](https://docs.claude.com/en/docs/claude-code/skills) |
-| `tests/test_selbst.py` | Selbsttest ohne fremde Dateien |
+| `tests/test_selftest.py` | Selbsttest ohne fremde Dateien |
 
 ## Schnellstart
 
@@ -55,7 +55,7 @@ git clone https://github.com/id3vi5er/makera-mks ~/.claude/skills/makera-mks
 ## Test
 
 ```bash
-python tests/test_selbst.py
+python tests/test_selftest.py
 ```
 
 ## Lizenz

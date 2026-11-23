@@ -1,6 +1,6 @@
-"""Selbsttest ohne fremde Dateien: Projekt erzeugen, speichern, laden, Roundtrip prüfen.
+"""Self-test without external files: create, save and load a project, check the round trip.
 
-    python tests/test_selbst.py
+    python tests/test_selftest.py
 """
 import json
 import os
@@ -19,7 +19,7 @@ def main():
     lay = mks.find_layer(p, "Layer1")
     lay.children.append(mks.polyline_node([(10, 10), (60, 10), (60, 40), (10, 40)]))
     lay.children.append(mks.polyline_node(mks.circle_points(90, 50, 15)))
-    lay2 = mks.add_layer(p, "Zweiter", "#ff8800")
+    lay2 = mks.add_layer(p, "Second", "#ff8800")
     lay2.children.append(mks.polyline_node([(5, 70), (115, 70)], "#ff8800", closed=False))
 
     with tempfile.TemporaryDirectory() as d:
@@ -32,36 +32,36 @@ def main():
         assert b"\r\n" in j
 
         q = mks.load(f)
-        assert mks.write_scene(q.scene) == b, "bin-Roundtrip"
-        assert mks.dump_prj(json.loads(j)) == j, "prj-Roundtrip"
+        assert mks.write_scene(q.scene) == b, "bin round trip"
+        assert mks.dump_prj(json.loads(j)) == j, "prj round trip"
         sj = json.loads(mks_tool.dump_compact(mks_tool.scene_to_json(q.scene)))
-        assert mks.write_scene(mks_tool.json_to_scene(sj)) == b, "JSON-Roundtrip"
+        assert mks.write_scene(mks_tool.json_to_scene(sj)) == b, "JSON round trip"
         sb = json.loads(mks_tool.dump_compact(mks_tool.scene_to_json(q.scene, b64=True)))
-        assert mks.write_scene(mks_tool.json_to_scene(sb)) == b, "Base64-Roundtrip"
+        assert mks.write_scene(mks_tool.json_to_scene(sb)) == b, "Base64 round trip"
 
-        # extract -> pack über die CLI
+        # extract -> pack via the CLI
         out = os.path.join(d, "x")
         mks_tool.main(["extract", f, out])
         mks_tool.main(["pack", out, os.path.join(d, "t2.mks")])
         with zipfile.ZipFile(os.path.join(d, "t2.mks")) as z2:
             assert z2.read("makera.bin") == b and z2.read("makera.prj") == j, "extract/pack"
 
-        # Geometrie und Bezüge
+        # geometry and links
         root, pc = mks.coordinate(q, 0)
-        assert [img["name"] for img in pc["images"]] == ["Layer1", "Zweiter"]
+        assert [img["name"] for img in pc["images"]] == ["Layer1", "Second"]
         assert mks_tool.check_links(q) == []
         segs = [s for c in root.children for n, m in mks.iter_nodes(c) for s in mks.segments(n, m)]
         assert len(segs) == 4 + 64 + 1, len(segs)
         assert segs[0][0][:2] == (10.0, 10.0)
         mks_tool.main(["svg", f, os.path.join(d, "t.svg")])
 
-    # leerer Name muss abgelehnt werden
+    # an empty name must be rejected
     try:
         mks.write_scene(mks.Scene(roots=[mks.Node(name="", uuid="x", matrix=mks.IDENTITY, type=8)]))
-        raise AssertionError("leerer Name nicht abgelehnt")
+        raise AssertionError("empty name was not rejected")
     except ValueError:
         pass
-    print("alle Tests bestanden")
+    print("all tests passed")
 
 
 if __name__ == "__main__":
