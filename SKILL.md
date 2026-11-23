@@ -8,7 +8,7 @@ description: Liest, entpackt, bearbeitet und schreibt Makera-Studio-Projektdatei
 ## Kernfakten
 
 - `.mks` = ZIP mit `makera` (leer), `makera.bin` (Binär-Szenengraph `scene_v3`), `makera.prj`
-  (Qt-JSON, CRLF), optional `prjImg.png`. Komplette Spezifikation: `reference/FORMAT.md`.
+  (Qt-JSON, CRLF), optional `prjImg.png`. Komplette Spezifikation: `reference/FORMAT.md` (deutsch: `reference/FORMAT.de.md`).
 - Das Format stammt aus dem Schreibcode von `MakeraStudio.exe` 0.1.2.0, nicht aus Raten.
   Verifiziert: 36 echte Projekte lesen → schreiben **bytegenau** (bin, prj und über das JSON-Abbild);
   neu erzeugte Dateien laden in Makera Studio korrekt.
